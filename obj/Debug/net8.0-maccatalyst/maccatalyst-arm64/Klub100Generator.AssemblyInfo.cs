@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Klub100Generator")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0+10df2643ec17f8e53030325c38bc196234765661")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0+9288b91e1f3d3c594a19fb36f2aab71e3800540d")]
 [assembly: System.Reflection.AssemblyProductAttribute("Klub100Generator")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Klub100Generator")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
