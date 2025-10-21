@@ -1,32 +1,32 @@
 {
   "format": 1,
   "restore": {
-    "/Users/nadsmielsen/Repo/Klub100/Klub100Generator/Klub100Generator.csproj": {}
+    "C:\\Users\\Mads\\Documents\\Klub100\\Klub100Generator\\Klub100Generator.csproj": {}
   },
   "projects": {
-    "/Users/nadsmielsen/Repo/Klub100/Klub100Generator/Klub100Generator.csproj": {
+    "C:\\Users\\Mads\\Documents\\Klub100\\Klub100Generator\\Klub100Generator.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "/Users/nadsmielsen/Repo/Klub100/Klub100Generator/Klub100Generator.csproj",
+        "projectUniqueName": "C:\\Users\\Mads\\Documents\\Klub100\\Klub100Generator\\Klub100Generator.csproj",
         "projectName": "Klub100Generator",
-        "projectPath": "/Users/nadsmielsen/Repo/Klub100/Klub100Generator/Klub100Generator.csproj",
-        "packagesPath": "/Users/nadsmielsen/.nuget/packages/",
-        "outputPath": "/Users/nadsmielsen/Repo/Klub100/Klub100Generator/obj/",
+        "projectPath": "C:\\Users\\Mads\\Documents\\Klub100\\Klub100Generator\\Klub100Generator.csproj",
+        "packagesPath": "C:\\Users\\Mads\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\Mads\\Documents\\Klub100\\Klub100Generator\\obj\\",
         "projectStyle": "PackageReference",
         "crossTargeting": true,
         "configFilePaths": [
-          "/Users/nadsmielsen/.nuget/NuGet/NuGet.Config"
+          "C:\\Users\\Mads\\AppData\\Roaming\\NuGet\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
-          "net8.0-macos"
+          "net9.0-windows10.0.19041.0"
         ],
         "sources": {
-          "/usr/local/share/dotnet/library-packs": {},
+          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net8.0-macos15.0": {
-            "targetAlias": "net8.0-macos",
+          "net9.0-windows10.0.19041": {
+            "targetAlias": "net9.0-windows10.0.19041.0",
             "projectReferences": {}
           }
         },
@@ -39,29 +39,32 @@
           "enableAudit": "true",
           "auditLevel": "low",
           "auditMode": "direct"
-        }
+        },
+        "SdkAnalysisLevel": "9.0.200"
       },
       "frameworks": {
-        "net8.0-macos15.0": {
-          "targetAlias": "net8.0-macos",
+        "net9.0-windows10.0.19041": {
+          "targetAlias": "net9.0-windows10.0.19041.0",
           "dependencies": {
+            "FFmpegCore": {
+              "target": "Package",
+              "version": "[5.3.0, )"
+            },
             "Microsoft.Extensions.Logging.Debug": {
               "target": "Package",
               "version": "[8.0.1, )"
             },
             "Microsoft.Maui.Controls": {
               "target": "Package",
-              "version": "[8.0.100, )"
+              "version": "[9.0.111, )"
             },
             "Microsoft.Maui.Controls.Compatibility": {
               "target": "Package",
-              "version": "[8.0.100, )"
+              "version": "[9.0.111, )"
             },
-            "Microsoft.NET.ILLink.Tasks": {
-              "suppressParent": "All",
+            "YoutubeExplode.Converter": {
               "target": "Package",
-              "version": "[8.0.15, )",
-              "autoReferenced": true
+              "version": "[6.5.5, )"
             }
           },
           "imports": [
@@ -77,27 +80,23 @@
           "warn": true,
           "downloadDependencies": [
             {
-              "name": "Microsoft.AspNetCore.App.Runtime.osx-arm64",
-              "version": "[8.0.15, 8.0.15]"
-            },
-            {
-              "name": "Microsoft.NETCore.App.Runtime.osx-arm64",
-              "version": "[8.0.15, 8.0.15]"
+              "name": "Microsoft.Windows.SDK.NET.Ref",
+              "version": "[10.0.19041.57, 10.0.19041.57]"
             }
           ],
           "frameworkReferences": {
-            "Microsoft.macOS": {
+            "Microsoft.NETCore.App": {
               "privateAssets": "all"
             },
-            "Microsoft.NETCore.App": {
+            "Microsoft.Windows.SDK.NET.Ref.Windows": {
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.408/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.200\\RuntimeIdentifierGraph.json"
         }
       },
       "runtimes": {
-        "osx-arm64": {
+        "win10-x64": {
           "#import": []
         }
       }
