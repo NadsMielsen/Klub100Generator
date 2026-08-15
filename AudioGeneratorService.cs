@@ -8,13 +8,13 @@ namespace Klub100Generator;
 
 public class AudioGeneratorService
 {
-    private readonly SemaphoreSlim _downloadSemaphore = new(5);
-    private readonly SemaphoreSlim _trimSemaphore = new(5);
     private readonly SemaphoreSlim _oembedSemaphore = new(5);
     private static readonly HttpClient _httpClient = new();
 
     public event Action<string>? Log;
     public event Action<int, int>? ProgressChanged;
+    public int DownloadConcurrency { get; set; } = 5;
+    public int TrimConcurrency { get; set; } = 5;
 
     private string? _basePath;
     public string BasePath
@@ -344,7 +344,7 @@ public class AudioGeneratorService
 
     public async Task DownloadAsync(List<ClipInfo> clips, string? cookiesPath)
     {
-        Log?.Invoke($"[INFO] Starting download of {clips.Count} clips...");
+        Log?.Invoke($"[INFO] Starting download of {clips.Count} clips (concurrency: {DownloadConcurrency})...");
         var ytDlpPath = GetYtDlpPath();
         var ffmpegLocationArg = GetFfmpegLocationArg();
         var cookiesArg = GetCookiesArg(cookiesPath);
@@ -354,9 +354,10 @@ public class AudioGeneratorService
         int completed = 0;
         ReportProgress(0, clips.Count);
 
+        using var downloadSem = new SemaphoreSlim(DownloadConcurrency);
         var tasks = clips.Select(async clip =>
         {
-            await _downloadSemaphore.WaitAsync();
+            await downloadSem.WaitAsync();
             try
             {
                 clip.Status = ClipStatus.Downloading;
@@ -416,7 +417,7 @@ public class AudioGeneratorService
             }
             finally
             {
-                _downloadSemaphore.Release();
+                downloadSem.Release();
                 Interlocked.Increment(ref completed);
                 ReportProgress(completed, clips.Count);
             }
@@ -434,7 +435,7 @@ public class AudioGeneratorService
 
     public async Task TrimAsync(List<ClipInfo> clips, int clipLengthSeconds)
     {
-        Log?.Invoke($"[INFO] Starting trim of {clips.Count} clips (length: {clipLengthSeconds}s)...");
+        Log?.Invoke($"[INFO] Starting trim of {clips.Count} clips (length: {clipLengthSeconds}s, concurrency: {TrimConcurrency})...");
         var ffmpegPath = GetFfmpegPath();
         var songsDir = Path.Combine(BasePath, "songs");
         var trimmedDir = Path.Combine(songsDir, "trimmed");
@@ -444,9 +445,10 @@ public class AudioGeneratorService
         int completed = 0;
         ReportProgress(0, clipsToTrim.Count);
 
+        using var trimSem = new SemaphoreSlim(TrimConcurrency);
         var tasks = clipsToTrim.Select(async clip =>
         {
-            await _trimSemaphore.WaitAsync();
+            await trimSem.WaitAsync();
             try
             {
                 clip.Status = ClipStatus.Trimming;
@@ -485,7 +487,7 @@ public class AudioGeneratorService
             }
             finally
             {
-                _trimSemaphore.Release();
+                trimSem.Release();
                 Interlocked.Increment(ref completed);
                 ReportProgress(completed, clipsToTrim.Count);
             }

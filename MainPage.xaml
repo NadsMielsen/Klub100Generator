@@ -49,6 +49,24 @@
                                WidthRequest="60" />
                     </HorizontalStackLayout>
 
+                    <!-- Concurrency -->
+                    <HorizontalStackLayout Spacing="8">
+                        <Label Text="Concurrency:" VerticalOptions="Center" />
+                        <Slider x:Name="ConcurrencySlider"
+                                Minimum="1"
+                                Maximum="5"
+                                Value="5"
+                                MaximumTrackColor="LightGray"
+                                MinimumTrackColor="{StaticResource Primary}"
+                                ThumbColor="{StaticResource Primary}"
+                                WidthRequest="120"
+                                ValueChanged="OnConcurrencyChanged" />
+                        <Label x:Name="ConcurrencyLabel"
+                               Text="5"
+                               VerticalOptions="Center"
+                               WidthRequest="20" />
+                    </HorizontalStackLayout>
+
                     <!-- Transition Audio -->
                     <Label Text="Transition Audio" FontAttributes="Bold" Margin="0,4,0,1" />
                     <Picker x:Name="TransitionModePicker"

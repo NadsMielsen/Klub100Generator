@@ -323,6 +323,18 @@ public partial class MainPage : ContentPage
 
     #endregion
 
+    #region Concurrency
+
+    private void OnConcurrencyChanged(object sender, ValueChangedEventArgs e)
+    {
+        var value = (int)Math.Round(e.NewValue);
+        ConcurrencyLabel.Text = value.ToString();
+        _audioService.DownloadConcurrency = value;
+        _audioService.TrimConcurrency = value;
+    }
+
+    #endregion
+
     #region Clip Reordering
 
     private void OnShuffleClicked(object sender, EventArgs e)
