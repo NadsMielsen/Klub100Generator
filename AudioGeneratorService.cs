@@ -8,7 +8,7 @@ namespace Klub100Generator;
 
 public class AudioGeneratorService
 {
-    private readonly SemaphoreSlim _downloadSemaphore = new(3);
+    private readonly SemaphoreSlim _downloadSemaphore = new(2);
     private readonly SemaphoreSlim _trimSemaphore = new(5);
     private readonly SemaphoreSlim _oembedSemaphore = new(5);
     private static readonly HttpClient _httpClient = new();
@@ -363,9 +363,10 @@ public class AudioGeneratorService
                 Log?.Invoke($"[INFO] Downloading clip {clip.Id}: {clip.Url}");
 
                 var outputPath = Path.Combine(songsDir, $"{clip.Id}.%(ext)s");
-                var args = $"-f bestaudio --no-playlist --no-update --retries 5 --fragment-retries 5 {ffmpegLocationArg} {cookiesArg} -o \"{outputPath}\" {clip.Url}";
+                var args = $"-f bestaudio --no-playlist --no-update --no-warnings --retries 5 --fragment-retries 5 --sleep-requests 1 {ffmpegLocationArg} {cookiesArg} -o \"{outputPath}\" {clip.Url}";
 
-                var maxRetries = 3;
+                var maxRetries = 5;
+                var delays = new[] { 10, 20, 30, 60 };
                 for (int attempt = 1; attempt <= maxRetries; attempt++)
                 {
                     try
@@ -373,10 +374,20 @@ public class AudioGeneratorService
                         await RunProcessAsync(ytDlpPath, args, BasePath);
                         break;
                     }
-                    catch (Exception ex) when (attempt < maxRetries && ex.Message.Contains("403"))
+                    catch (Exception ex) when (attempt < maxRetries &&
+                        (ex.Message.Contains("403") || ex.Message.Contains("429") ||
+                         ex.Message.Contains("Forbidden") || ex.Message.Contains("rate")))
                     {
-                        Log?.Invoke($"[WARN] Clip {clip.Id} got 403 (attempt {attempt}/{maxRetries}). Retrying in 5s...");
-                        await Task.Delay(5000);
+                        var delay = delays[attempt - 1];
+                        Log?.Invoke($"[WARN] Clip {clip.Id} failed (attempt {attempt}/{maxRetries}). Retrying in {delay}s...");
+                        await Task.Delay(delay * 1000);
+
+                        var partialFiles = Directory.GetFiles(songsDir, $"{clip.Id}.*")
+                            .Where(f => f.EndsWith(".part") || f.EndsWith(".ytdl") || f.EndsWith(".tmp"));
+                        foreach (var partial in partialFiles)
+                        {
+                            try { File.Delete(partial); } catch { }
+                        }
                     }
                 }
 
