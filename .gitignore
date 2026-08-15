@@ -1,0 +1,57 @@
+## .NET / MAUI
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+## Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio
+.vs/
+*.vspscc
+*.vssscc
+*.pidb
+*.svclog
+*.scc
+*.bak
+*.cache
+*.dll
+*.exe
+*.pdb
+
+## MAUI / Windows
+AppPackages/
+*.appx
+*.msix
+*.pfx
+*.appxupload
+*.msixupload
+*.appxsym
+*.appxsym
+
+## Temp/build artifacts
+*.proj.Backup.tmp
+*.tmp
+FETCH_HEAD
+
+## OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

@@ -1,80 +1,258 @@
 ﻿<?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
-             x:Class="Klub100Generator.MainPage">
-    <Grid RowDefinitions="*"
-          ColumnDefinitions="2*,3*">
-        <!-- Left side: Controls -->
-        <ScrollView Grid.Column="0">
-            <VerticalStackLayout Padding="30,0"
-                                 Spacing="25">
-                <Button x:Name="SelectCsvBtn"
-                        Text="Choose CSV File"
-                        Clicked="OnSelectCsvClicked"
-                        HorizontalOptions="Fill"/>
-                <Button x:Name="DownloadBtn"
-                        Text="Download"
-                        Clicked="OnDownloadClicked"
-                        HorizontalOptions="Fill"/>
-                <Button x:Name="TrimAudioBtn"
-                        Text="Trim Audio Files"
-                        Clicked="OnTrimAudioClicked"
-                        HorizontalOptions="Fill"/>
-                <Button x:Name="MergeAudioBtn"
-                        Text="Merge Cut Files"
-                        Clicked="OnMergeAudioClicked"
-                        HorizontalOptions="Fill"/>
-                <Label x:Name="SelectedFileLabel"
-                       Text="No file selected."
-                       FontAttributes="Italic"
-                       HorizontalOptions="Fill"/>
-            </VerticalStackLayout>
-        </ScrollView>
+             xmlns:local="clr-namespace:Klub100Generator"
+             x:Class="Klub100Generator.MainPage"
+             Title="Klub100 Generator">
 
-        <!-- Right side: Logs -->
-        <Grid Grid.Column="1"
-              RowDefinitions="3*,2*"
-              Padding="10,10,10,10">
-            <!-- Main Info Log -->
-            <Border Grid.Row="0"
-                    Stroke="Gray"
-                    StrokeThickness="1"
-                    StrokeShape="RoundRectangle 8"
-                    Margin="0,0,0,10"
-                    Padding="0">
-                <VerticalStackLayout>
-                    <Label Text="Info Log"
-                           FontAttributes="Bold"
-                           FontSize="Medium"
-                           Padding="10,5,0,0"/>
-                    <Editor x:Name="LogTerminal"
-                            IsReadOnly="True"
-                            AutoSize="TextChanges"
-                            Placeholder="General info log..."
-                            HeightRequest="250"
-                            MaxLength="1000000"/>
-                </VerticalStackLayout>
-            </Border>
-            <!-- Warnings/Errors Log -->
-            <Border Grid.Row="1"
-                    Stroke="DarkRed"
-                    StrokeThickness="1"
-                    StrokeShape="RoundRectangle 8"
-                    Padding="0">
-                <VerticalStackLayout>
-                    <Label Text="Warnings &amp; Errors"
-                           FontAttributes="Bold"
-                           FontSize="Medium"
-                           TextColor="DarkRed"
-                           Padding="10,5,0,0"/>
-                    <Editor x:Name="WarnErrorTerminal"
-                            IsReadOnly="True"
-                            AutoSize="TextChanges"
-                            Placeholder="Warnings and errors..."
-                            HeightRequest="120"
-                            MaxLength="1000000"/>
-                </VerticalStackLayout>
-            </Border>
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Header with progress bar -->
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Padding="10,4" BackgroundColor="{AppThemeBinding Light={StaticResource Gray100}, Dark={StaticResource Gray950}}">
+            <HorizontalStackLayout Grid.Column="0" Spacing="10" VerticalOptions="Center">
+                <Label x:Name="VersionLabel" Text="" FontAttributes="Bold" VerticalOptions="Center" />
+                <ProgressBar x:Name="ProgressBar" WidthRequest="200" VerticalOptions="Center" />
+                <Label x:Name="ProgressLabel" Text="" VerticalOptions="Center" />
+            </HorizontalStackLayout>
         </Grid>
+
+        <!-- Main content: two columns -->
+        <Grid Grid.Row="1" ColumnDefinitions="300,*">
+
+            <!-- Left: Controls panel -->
+            <ScrollView Grid.Column="0">
+                <VerticalStackLayout Padding="10" Spacing="6">
+
+                    <!-- CSV Selection -->
+                    <Button x:Name="SelectCsvBtn"
+                            Text="Choose CSV File"
+                            Clicked="OnSelectCsvClicked"
+                            HorizontalOptions="Fill" />
+                    <Button x:Name="FetchTitlesBtn"
+                            Text="Fetch Video Titles"
+                            Clicked="OnFetchTitlesClicked"
+                            HorizontalOptions="Fill" />
+                    <Label x:Name="SelectedFileLabel"
+                           Text="No file selected."
+                           FontAttributes="Italic"
+                           LineBreakMode="TailTruncation" />
+
+                    <!-- Settings section -->
+                    <Label Text="Settings" FontAttributes="Bold" Margin="0,5,0,1" />
+
+                    <!-- Clip length -->
+                    <HorizontalStackLayout Spacing="8">
+                        <Label Text="Clip length (seconds):" VerticalOptions="Center" />
+                        <Entry x:Name="ClipLengthEntry"
+                               Text="60"
+                               Keyboard="Numeric"
+                               WidthRequest="60" />
+                    </HorizontalStackLayout>
+
+                    <!-- Transition Audio -->
+                    <Label Text="Transition Audio" FontAttributes="Bold" Margin="0,4,0,1" />
+                    <Picker x:Name="TransitionModePicker"
+                            Title="Transition mode"
+                            SelectedIndexChanged="OnTransitionModeChanged"
+                            HorizontalOptions="Fill">
+                        <Picker.ItemsSource>
+                            <x:Array Type="{x:Type x:String}">
+                                <x:String>None</x:String>
+                                <x:String>Single File</x:String>
+                                <x:String>Random Folder</x:String>
+                            </x:Array>
+                        </Picker.ItemsSource>
+                    </Picker>
+                    <Button x:Name="TransitionFileBtn"
+                            Text="Pick Transition File"
+                            Clicked="OnPickTransitionFileClicked"
+                            IsVisible="False"
+                            HorizontalOptions="Fill" />
+                    <Button x:Name="TransitionFolderBtn"
+                            Text="Pick Transition Folder"
+                            Clicked="OnPickTransitionFolderClicked"
+                            IsVisible="False"
+                            HorizontalOptions="Fill" />
+                    <Label x:Name="TransitionFileLabel"
+                           Text=""
+                           FontAttributes="Italic"
+                           LineBreakMode="TailTruncation" />
+                    <HorizontalStackLayout Spacing="15">
+                        <HorizontalStackLayout Spacing="3">
+                            <CheckBox x:Name="AddAtStartCheck" IsChecked="False" />
+                            <Label Text="At start" VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Spacing="3">
+                            <CheckBox x:Name="AddAtEndCheck" IsChecked="False" />
+                            <Label Text="At end" VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                    </HorizontalStackLayout>
+
+                    <!-- Cookies -->
+                    <HorizontalStackLayout Spacing="5" Margin="0,4,0,1">
+                        <Label Text="Cookies (optional, for age-restricted videos)" FontAttributes="Bold" VerticalOptions="Center" />
+                        <Button Text="?"
+                                Clicked="OnCookiesHelpClicked"
+                                WidthRequest="28"
+                                HeightRequest="24"
+                                Padding="0" />
+                    </HorizontalStackLayout>
+                    <Button Text="Pick Cookies File"
+                            Clicked="OnPickCookiesClicked"
+                            HorizontalOptions="Fill" />
+                    <Label x:Name="CookiesLabel"
+                           Text="No cookies file selected."
+                           FontAttributes="Italic"
+                           LineBreakMode="TailTruncation" />
+
+                    <!-- Actions -->
+                    <Label Text="Actions" FontAttributes="Bold" Margin="0,6,0,1" />
+                    <Button x:Name="RunAllBtn"
+                            Text="Run All"
+                            Clicked="OnRunAllClicked"
+                            HorizontalOptions="Fill"
+                            BackgroundColor="LightGreen" />
+                    <Grid ColumnDefinitions="*,*,*" ColumnSpacing="3">
+                        <Button x:Name="DownloadBtn"
+                                Grid.Column="0"
+                                Text="Download"
+                                Clicked="OnDownloadClicked" />
+                        <Button x:Name="TrimBtn"
+                                Grid.Column="1"
+                                Text="Trim"
+                                Clicked="OnTrimClicked" />
+                        <Button x:Name="MergeBtn"
+                                Grid.Column="2"
+                                Text="Merge"
+                                Clicked="OnMergeClicked" />
+                    </Grid>
+
+                    <!-- Output -->
+                    <Label x:Name="OutputLabel"
+                           Text=""
+                           FontAttributes="Italic"
+                           LineBreakMode="TailTruncation"
+                           Margin="0,4,0,0" />
+                    <Button x:Name="OpenOutputBtn"
+                            Text="Open Output Folder"
+                            Clicked="OnOpenOutputFolderClicked"
+                            IsVisible="False"
+                            HorizontalOptions="Fill" />
+
+                </VerticalStackLayout>
+            </ScrollView>
+
+            <!-- Right: Clip list + Logs -->
+            <Grid Grid.Column="1" RowDefinitions="*,150" RowSpacing="3" Padding="5,3,5,5">
+
+                <!-- Clip list -->
+                <Grid Grid.Row="0" RowDefinitions="Auto,*">
+                    <VerticalStackLayout Grid.Row="0" Spacing="2" Margin="3,0">
+                        <HorizontalStackLayout Spacing="8">
+                            <Label Text="Clips" FontAttributes="Bold" VerticalOptions="Center" />
+                            <Label x:Name="ClipCountLabel" Text="" VerticalOptions="Center" FontAttributes="Italic" TextColor="Gray" />
+                        </HorizontalStackLayout>
+                        <Label x:Name="StatusSummaryLabel" Text="" FontSize="Micro" TextColor="Gray" />
+                    </VerticalStackLayout>
+                    <HorizontalStackLayout Grid.Row="0" Spacing="5" HorizontalOptions="End" VerticalOptions="Center">
+                        <Button x:Name="ShuffleBtn"
+                                Text="Shuffle"
+                                Clicked="OnShuffleClicked" />
+                    </HorizontalStackLayout>
+
+                    <ScrollView Grid.Row="1" x:Name="ClipScrollView">
+                        <VerticalStackLayout x:Name="ClipList" BindableLayout.ItemsSource="{Binding}">
+                            <BindableLayout.ItemTemplate>
+                                <DataTemplate x:DataType="local:ClipInfo">
+                                    <Border Stroke="{Binding StatusColor}" StrokeThickness="2" StrokeShape="RoundRectangle 3" Margin="2" Padding="4">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <VerticalStackLayout Grid.Column="0" Spacing="1">
+                                                <Label Text="{Binding DisplayName}"
+                                                       FontAttributes="Bold"
+                                                       LineBreakMode="TailTruncation"
+                                                       MaxLines="1" />
+                                                <Label Text="{Binding Url}"
+                                                       FontSize="Micro"
+                                                       TextColor="Gray"
+                                                       LineBreakMode="TailTruncation"
+                                                       MaxLines="1" />
+                                                <HorizontalStackLayout Spacing="8">
+                                                    <Label Text="{Binding Timestamp, StringFormat='Start: {0}'}"
+                                                           FontSize="Micro" />
+                                                    <Label Text="{Binding StatusText}"
+                                                           FontSize="Micro"
+                                                           TextColor="{Binding StatusColor}" />
+                                                </HorizontalStackLayout>
+                                            </VerticalStackLayout>
+                                            <VerticalStackLayout Grid.Column="1" Spacing="2">
+                                                <Button Text="&#x2191;"
+                                                        Clicked="OnMoveUpClicked"
+                                                        WidthRequest="28"
+                                                        HeightRequest="24"
+                                                        Padding="0" />
+                                                <Button Text="&#x2193;"
+                                                        Clicked="OnMoveDownClicked"
+                                                        WidthRequest="28"
+                                                        HeightRequest="24"
+                                                        Padding="0" />
+                                            </VerticalStackLayout>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </BindableLayout.ItemTemplate>
+                            <BindableLayout.EmptyView>
+                                <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Spacing="3">
+                                    <Label Text="No clips loaded."
+                                           TextColor="Gray" />
+                                    <Label Text="Choose a CSV file to get started."
+                                           TextColor="Gray"
+                                           FontSize="Micro" />
+                                </VerticalStackLayout>
+                            </BindableLayout.EmptyView>
+                        </VerticalStackLayout>
+                    </ScrollView>
+                </Grid>
+
+                <!-- Logs -->
+                <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="3">
+                    <Border Grid.Column="0"
+                            Stroke="Gray"
+                            StrokeThickness="1"
+                            StrokeShape="RoundRectangle 3"
+                            Padding="0">
+                        <VerticalStackLayout>
+                            <Label Text="Info Log"
+                                   FontAttributes="Bold"
+                                   Padding="6,2,0,0" />
+                            <Editor x:Name="LogTerminal"
+                                    IsReadOnly="True"
+                                    AutoSize="TextChanges"
+                                    Placeholder="Info log..."
+                                    MaxLength="1000000" />
+                        </VerticalStackLayout>
+                    </Border>
+                    <Border Grid.Column="1"
+                            Stroke="DarkRed"
+                            StrokeThickness="1"
+                            StrokeShape="RoundRectangle 3"
+                            Padding="0">
+                        <VerticalStackLayout>
+                            <Label Text="Warnings &amp; Errors"
+                                   FontAttributes="Bold"
+                                   TextColor="DarkRed"
+                                   Padding="6,2,0,0" />
+                            <Editor x:Name="WarnErrorTerminal"
+                                    IsReadOnly="True"
+                                    AutoSize="TextChanges"
+                                    Placeholder="Warnings and errors..."
+                                    MaxLength="1000000" />
+                        </VerticalStackLayout>
+                    </Border>
+                </Grid>
+
+            </Grid>
+
+        </Grid>
+
     </Grid>
 </ContentPage>

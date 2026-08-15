@@ -1,448 +1,676 @@
-
 using System.Diagnostics;
-// using YoutubeExplode.Converter;
-using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
+using System.Text;
+using System.Threading;
 
-namespace Klub100Generator
+namespace Klub100Generator;
+
+public class AudioGeneratorService
 {
-            public class AudioGeneratorService
+    private readonly SemaphoreSlim _downloadSemaphore = new(5);
+    private readonly SemaphoreSlim _trimSemaphore = new(5);
+    private readonly SemaphoreSlim _oembedSemaphore = new(5);
+    private static readonly HttpClient _httpClient = new();
 
+    public event Action<string>? Log;
+    public event Action<int, int>? ProgressChanged;
+
+    private string? _basePath;
+    public string BasePath
     {
-                    // Set the enforced audio extension/format (e.g., webm)
-    private const string EnforcedAudioExtension = ".webm";
-                // Limit concurrent yt-dlp windows
-                private readonly SemaphoreSlim _ytDlpSemaphore = new SemaphoreSlim(10); // Default: 10 concurrent yt-dlp
-                // Limit concurrent ffmpeg trimming
-                private readonly SemaphoreSlim _trimSemaphore = new SemaphoreSlim(10); // Default: 10 concurrent trims
-            public event Action<string>? Log;
-            private string? _basePath;
-            public string BasePath
-            {
-                get => _basePath ?? AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                set => _basePath = value;
-            }
+        get => _basePath ?? AppContext.BaseDirectory;
+        set => _basePath = value;
+    }
 
+    public AudioGeneratorService() { }
 
-        public AudioGeneratorService() { }
+    #region Binary Resolution
 
-
-        private string GetFfmpegPath()
+    private string GetFfmpegPath()
+    {
+        var toolsDir = Path.Combine(AppContext.BaseDirectory, "tools");
+        foreach (var name in new[] { "ffmpeg.exe", "ffmpeg" })
         {
-            // Expect ffmpeg.exe to be in the same folder as the selected CSV file (BasePath)
-            return Path.Combine(BasePath, "ffmpeg.exe");
+            var path = Path.Combine(toolsDir, name);
+            if (File.Exists(path)) return path;
         }
-
-        public string? OverrideYtDlpPath { get; set; }
-        private string GetYtDlpPath()
+        foreach (var name in new[] { "ffmpeg.exe", "ffmpeg" })
         {
-            if (!string.IsNullOrEmpty(OverrideYtDlpPath))
-                return OverrideYtDlpPath;
-            // Expect yt-dlp.exe to be in the same folder as the selected CSV file (BasePath)
-            return Path.Combine(BasePath, "yt-dlp.exe");
+            var path = Path.Combine(BasePath, name);
+            if (File.Exists(path)) return path;
         }
+        throw new FileNotFoundException(
+            $"ffmpeg not found. Looked in '{toolsDir}' and '{BasePath}'. " +
+            "Please ensure the tools folder contains ffmpeg.");
+    }
 
-        public async Task<(List<string> urls, List<string> timeStamps)> ParseCsvAsync(string csvPath)
+    private string GetYtDlpPath()
+    {
+        var toolsDir = Path.Combine(AppContext.BaseDirectory, "tools");
+        foreach (var name in new[] { "yt-dlp.exe", "yt-dlp" })
         {
-            // Windows only, no platform check needed
-            var urls = new List<string>();
-            var timeStamps = new List<string>();
-            if (!File.Exists(csvPath))
-                throw new FileNotFoundException($"CSV file not found: {csvPath}");
-
-            var text = File.ReadAllText(csvPath).Split(new[] { ',', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < text.Length; i++)
-            {
-                if (i % 2 == 0)
-                    urls.Add(text[i]);
-                else
-                    timeStamps.Add(text[i]);
-            }
-            return (urls, timeStamps);
+            var path = Path.Combine(toolsDir, name);
+            if (File.Exists(path)) return path;
         }
-        /// <summary>
-        /// Downloads audio from a YouTube URL using yt-dlp and ffmpeg as background processes.
-        /// </summary>
-        public async Task DownloadAudioAsync(string url, string? outputFile = null)
+        foreach (var name in new[] { "yt-dlp.exe", "yt-dlp" })
         {
-            // Windows only, no platform check needed
-            var ytDlpPath = GetYtDlpPath();
-            var ffmpegPath = GetFfmpegPath();
-            // Check if yt-dlp.exe exists
-            if (!File.Exists(ytDlpPath))
-            {
-                Log?.Invoke($"[ERROR] yt-dlp.exe not found at: {ytDlpPath}");
-                throw new FileNotFoundException($"yt-dlp.exe not found at: {ytDlpPath}");
-            }
-            // Check if ffmpeg.exe exists
-            if (!File.Exists(ffmpegPath))
-            {
-                Log?.Invoke($"[ERROR] ffmpeg.exe not found at: {ffmpegPath}");
-                throw new FileNotFoundException($"ffmpeg.exe not found at: {ffmpegPath}");
-            }
-            var songsDir = Path.Combine(BasePath, "songs");
-            Directory.CreateDirectory(songsDir);
-            var tempFileName = Path.Combine(songsDir, $"{Guid.NewGuid()}.%(ext)s");
-            var outputPattern = outputFile ?? tempFileName;
-            // Download best audio, keep original format
-            var args = $"-f bestaudio --no-playlist -o \"{outputPattern}\" {url}";
-            Log?.Invoke($"[INFO] yt-dlp: Downloading: {url}");
-            await RunProcessAsync(ytDlpPath, args, BasePath);
+            var path = Path.Combine(BasePath, name);
+            if (File.Exists(path)) return path;
+        }
+        throw new FileNotFoundException(
+            $"yt-dlp not found. Looked in '{toolsDir}' and '{BasePath}'. " +
+            "Please ensure the tools folder contains yt-dlp.exe.");
+    }
 
-            // Find the downloaded file (yt-dlp replaces %(ext)s with actual extension)
-            var downloadedFile = Directory.GetFiles(songsDir)
-                .OrderByDescending(f => File.GetCreationTime(f))
-                .FirstOrDefault(f => f.Contains(Path.GetFileNameWithoutExtension(tempFileName)));
+    private string GetFfmpegLocationArg()
+    {
+        var ffmpegPath = GetFfmpegPath();
+        var dir = Path.GetDirectoryName(ffmpegPath);
+        return !string.IsNullOrEmpty(dir) && ffmpegPath != "ffmpeg"
+            ? $"--ffmpeg-location \"{dir}\""
+            : string.Empty;
+    }
 
-            if (downloadedFile != null && File.Exists(downloadedFile))
+    private string GetCookiesArg(string? cookiesPath)
+    {
+        if (!string.IsNullOrEmpty(cookiesPath) && File.Exists(cookiesPath))
+            return $"--cookies \"{cookiesPath}\"";
+        var defaultCookies = Path.Combine(BasePath, "cookies.txt");
+        return File.Exists(defaultCookies) ? $"--cookies \"{defaultCookies}\"" : string.Empty;
+    }
+
+    #endregion
+
+    #region CSV Parsing
+
+    public Task<List<ClipInfo>> ParseCsvAsync(string csvPath)
+    {
+        if (!File.Exists(csvPath))
+            throw new FileNotFoundException($"CSV file not found: {csvPath}");
+
+        var clips = new List<ClipInfo>();
+        var seenUrls = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var lines = File.ReadAllLines(csvPath);
+        int id = 1;
+        bool headerSkipped = false;
+
+        for (int lineNumber = 0; lineNumber < lines.Length; lineNumber++)
+        {
+            var line = lines[lineNumber];
+            if (string.IsNullOrWhiteSpace(line)) continue;
+
+            var parts = ParseCsvLine(line);
+            if (parts.Count < 2)
             {
-                Log?.Invoke($"[INFO] yt-dlp: Downloaded to: {downloadedFile}");
-                // Enforce file extension/format if needed using ffmpeg directly
-                if (!downloadedFile.EndsWith(EnforcedAudioExtension, StringComparison.OrdinalIgnoreCase))
+                Log?.Invoke($"[WARN] Skipping line {lineNumber + 1}: not enough columns (expected URL and timestamp)");
+                continue;
+            }
+
+            var url = parts[0].Trim().Trim('"');
+            var timestamp = parts[1].Trim().Trim('"');
+
+            if (!headerSkipped)
+            {
+                if (url.Contains("url", StringComparison.OrdinalIgnoreCase) &&
+                    timestamp.Contains("time", StringComparison.OrdinalIgnoreCase))
                 {
-                    var enforcedFile = Path.ChangeExtension(downloadedFile, EnforcedAudioExtension);
-                    Log?.Invoke($"[INFO] ffmpeg: Converting {downloadedFile} to enforced format: {enforcedFile}");
-                    var ffmpegArgs = $"-i \"{downloadedFile}\" -c:a libopus -b:a 128k -vn -y \"{enforcedFile}\"";
-                    await RunProcessAsync(ffmpegPath, ffmpegArgs, Path.GetDirectoryName(ffmpegPath) ?? BasePath);
-                    File.Delete(downloadedFile);
+                    headerSkipped = true;
+                    continue;
                 }
+                headerSkipped = true;
+            }
+
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                Log?.Invoke($"[WARN] Skipping line {lineNumber + 1}: URL is empty");
+                continue;
+            }
+
+            if (!url.Contains("youtube.com") && !url.Contains("youtu.be") && !url.Contains("soundcloud.com"))
+            {
+                Log?.Invoke($"[WARN] Skipping line {lineNumber + 1}: URL '{url}' is not a supported link (YouTube or SoundCloud)");
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(timestamp))
+            {
+                Log?.Invoke($"[WARN] Skipping line {lineNumber + 1}: timestamp is empty");
+                continue;
+            }
+
+            if (!ValidateTimestamp(timestamp))
+            {
+                Log?.Invoke($"[WARN] Skipping line {lineNumber + 1}: timestamp '{timestamp}' is not a valid format (expected SS, MM:SS, or HH:MM:SS)");
+                continue;
+            }
+
+            if (parts.Count > 2)
+            {
+                Log?.Invoke($"[WARN] Line {lineNumber + 1}: has {parts.Count} columns, expected 2. Extra columns will be ignored.");
+            }
+
+            if (!seenUrls.Add(url))
+            {
+                Log?.Invoke($"[WARN] Line {lineNumber + 1}: duplicate URL '{url}' (accepted anyway)");
+            }
+
+            clips.Add(new ClipInfo
+            {
+                Id = id++,
+                Url = url,
+                Timestamp = timestamp
+            });
+        }
+
+        Log?.Invoke($"[INFO] Parsed {clips.Count} valid clip(s) from CSV.");
+        return Task.FromResult(clips);
+    }
+
+    internal static bool ValidateTimestamp(string ts)
+    {
+        if (string.IsNullOrWhiteSpace(ts))
+            return false;
+
+        var parts = ts.Trim().Split(':');
+        if (parts.Length is < 1 or > 3)
+            return false;
+
+        foreach (var p in parts)
+            if (!int.TryParse(p, out _))
+                return false;
+
+        var nums = parts.Select(int.Parse).ToArray();
+
+        return nums.Length switch
+        {
+            1 => nums[0] >= 0 && nums[0] < 86400,
+            2 => nums[0] >= 0 && nums[0] < 600 && nums[1] >= 0 && nums[1] < 60,
+            3 => nums[0] >= 0 && nums[0] < 100 && nums[1] >= 0 && nums[1] < 60 && nums[2] >= 0 && nums[2] < 60,
+            _ => false
+        };
+    }
+
+    internal static List<string> ParseCsvLine(string line)
+    {
+        var parts = new List<string>();
+        var current = new StringBuilder();
+        bool inQuotes = false;
+
+        for (int i = 0; i < line.Length; i++)
+        {
+            char c = line[i];
+            if (c == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+            }
+            else if (c == ',' && !inQuotes)
+            {
+                parts.Add(current.ToString());
+                current.Clear();
             }
             else
             {
-                Log?.Invoke($"[ERROR] yt-dlp: Download failed for: {url}");
+                current.Append(c);
             }
         }
-        private async Task RunProcessAsync(string fileName, string arguments, string workingDirectory)
+        parts.Add(current.ToString());
+        return parts;
+    }
+
+    public static int TimestampToSeconds(string ts)
+    {
+        if (string.IsNullOrWhiteSpace(ts))
+            return 0;
+
+        var parts = ts.Trim().Split(':');
+        try
         {
-            var psi = new ProcessStartInfo
+            return parts.Length switch
             {
-                FileName = fileName,
-                Arguments = arguments,
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                CreateNoWindow = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
+                1 => int.Parse(parts[0]),
+                2 => int.Parse(parts[0]) * 60 + int.Parse(parts[1]),
+                3 => int.Parse(parts[0]) * 3600 + int.Parse(parts[1]) * 60 + int.Parse(parts[2]),
+                _ => 0
             };
-            using (var process = new Process { StartInfo = psi })
-            {
-                process.Start();
-                await process.StandardOutput.ReadToEndAsync(); // Discard output
-                await process.StandardError.ReadToEndAsync();  // Discard error output
-                process.WaitForExit();
-                if (process.ExitCode != 0)
-                {
-                    Log?.Invoke($"[FAIL] Process exited with code {process.ExitCode}");
-                    throw new Exception($"Process exited with code {process.ExitCode}");
-                }
-            }
         }
-    public async Task DownloadSongsAsync(List<string> urls, int startIndex = 0, bool onlyOne = false)
+        catch
         {
-            // Windows only, no platform check needed
-            if (startIndex >= urls.Count) return;
-            Directory.CreateDirectory(Path.Combine(BasePath, "songs"));
-
-            Log?.Invoke($"[INFO] Entering DownloadSongsAsync...");
-            try
-            {
-                Log?.Invoke($"[INFO] Starting download of {urls.Count} songs...");
-                const int batchSize = 10;
-                for (int batchStart = startIndex; batchStart < urls.Count; batchStart += batchSize)
-                {
-                    Log?.Invoke($"[INFO] Downloading batch {batchStart / batchSize + 1} ({Math.Min(batchSize, urls.Count - batchStart)} songs)...");
-                    var tasks = new List<Task>();
-                    for (int i = batchStart; i < Math.Min(batchStart + batchSize, urls.Count); i++)
-                    {
-                        Log?.Invoke($"[INFO] Queueing download for song {i + 1} ({urls[i]})");
-                        await _ytDlpSemaphore.WaitAsync();
-                        var url = urls[i];
-                        // Name files as 1.webm, 2.webm, ... (1-based index, but extension will be set by yt-dlp)
-                        var outputPath = Path.Combine(BasePath, "songs", $"{i + 1}.%(ext)s");
-                        var task = DownloadAudioWithSemaphoreAsync(url, outputPath);
-                        tasks.Add(task);
-                        if (onlyOne) break;
-                    }
-                    await Task.WhenAll(tasks);
-                    Log?.Invoke($"[INFO] Finished batch {batchStart / batchSize + 1}");
-                    if (onlyOne) break;
-                }
-                Log?.Invoke("[INFO] Download finished. [FINISHED]");
-            }
-            catch (Exception ex)
-            {
-                Log?.Invoke($"[EXCEPTION] DownloadSongsAsync: {ex.Message}\n{ex.StackTrace}");
-            }
+            return 0;
         }
+    }
 
-        private async Task DownloadAudioWithSemaphoreAsync(string url, string outputPath)
+    #endregion
+
+    #region Title Fetching
+
+    public async Task FetchTitlesAsync(List<ClipInfo> clips, string? cookiesPath)
+    {
+        Log?.Invoke($"[INFO] Fetching titles for {clips.Count} clips...");
+        int completed = 0;
+        ReportProgress(0, clips.Count);
+
+        var tasks = clips.Select(async clip =>
         {
             try
             {
-                Log?.Invoke($"[INFO] Downloading audio: {url}");
-                // Basic validation: check if URL contains 'youtube.com' or 'youtu.be'
-                if (!url.Contains("youtube.com") && !url.Contains("youtu.be"))
+                var title = await FetchTitleViaOEmbedAsync(clip.Url);
+                if (string.IsNullOrWhiteSpace(title))
+                    title = await FetchTitleViaYtDlpAsync(clip.Url, cookiesPath);
+
+                if (!string.IsNullOrWhiteSpace(title))
                 {
-                    Log?.Invoke($"[ERROR] Invalid YouTube URL: {url}");
-                    return;
+                    clip.Title = title.Trim();
+                    Log?.Invoke($"[INFO] Clip {clip.Id}: {clip.Title}");
                 }
-                await DownloadAudioAsync(url, outputPath);
+                else
+                {
+                    Log?.Invoke($"[WARN] Could not fetch title for clip {clip.Id}");
+                }
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"[EXCEPTION] Error downloading: {url}: {ex.Message}");
+                Log?.Invoke($"[WARN] Error fetching title for clip {clip.Id}: {ex.Message}");
             }
             finally
             {
-                _ytDlpSemaphore.Release();
+                Interlocked.Increment(ref completed);
+                ReportProgress(completed, clips.Count);
             }
+        }).ToList();
+
+        await Task.WhenAll(tasks);
+        Log?.Invoke("[INFO] Title fetching complete.");
     }
 
-    public async Task CutAudioAsync(List<string> timeStamps)
+    private async Task<string?> FetchTitleViaOEmbedAsync(string url)
+    {
+        await _oembedSemaphore.WaitAsync();
+        try
         {
-            // Windows only, no platform check needed
-            Log?.Invoke($"[INFO] Entering CutAudioAsync...");
+            await Task.Delay(200);
+
+            string oembedUrl;
+            if (url.Contains("soundcloud.com"))
+                oembedUrl = $"https://soundcloud.com/oembed?url={Uri.EscapeDataString(url)}&format=json";
+            else
+                oembedUrl = $"https://www.youtube.com/oembed?url={Uri.EscapeDataString(url)}&format=json";
+
+            var response = await _httpClient.GetAsync(oembedUrl);
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var json = await response.Content.ReadAsStringAsync();
+            var titleMatch = System.Text.RegularExpressions.Regex.Match(json, "\"title\"\\s*:\\s*\"(.*?)\"", System.Text.RegularExpressions.RegexOptions.Singleline);
+            return titleMatch.Success ? titleMatch.Groups[1].Value : null;
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            _oembedSemaphore.Release();
+        }
+    }
+
+    private async Task<string?> FetchTitleViaYtDlpAsync(string url, string? cookiesPath)
+    {
+        try
+        {
+            var ytDlpPath = GetYtDlpPath();
+            var cookiesArg = GetCookiesArg(cookiesPath);
+            var args = $"--print \"%(title)s\" --skip-download --no-playlist --no-update --no-warnings {cookiesArg} {url}";
+            var (stdout, _, exitCode) = await RunProcessCapturedAsync(ytDlpPath, args, BasePath);
+            return exitCode == 0 && !string.IsNullOrWhiteSpace(stdout) ? stdout.Trim() : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    #endregion
+
+    #region Download
+
+    public async Task DownloadAsync(List<ClipInfo> clips, string? cookiesPath)
+    {
+        Log?.Invoke($"[INFO] Starting download of {clips.Count} clips...");
+        var ytDlpPath = GetYtDlpPath();
+        var ffmpegLocationArg = GetFfmpegLocationArg();
+        var cookiesArg = GetCookiesArg(cookiesPath);
+        var songsDir = Path.Combine(BasePath, "songs");
+        Directory.CreateDirectory(songsDir);
+
+        int completed = 0;
+        ReportProgress(0, clips.Count);
+
+        var tasks = clips.Select(async clip =>
+        {
+            await _downloadSemaphore.WaitAsync();
             try
             {
-                Log?.Invoke($"[INFO] Starting trim of {timeStamps.Count} files...");
-                var songsDir = Path.Combine(BasePath, "songs");
-                var trimmedDir = Path.Combine(songsDir, "trimmed");
-                Directory.CreateDirectory(trimmedDir);
-                // Only use files with the enforced extension
-                var songFiles = Directory.GetFiles(songsDir, "*" + EnforcedAudioExtension)
-                    .Select(f => new FileInfo(f)).ToList();
-                var trimTasks = new List<Task>();
-                for (int i = 0; i < songFiles.Count; i++)
+                clip.Status = ClipStatus.Downloading;
+                Log?.Invoke($"[INFO] Downloading clip {clip.Id}: {clip.Url}");
+
+                var outputPath = Path.Combine(songsDir, $"{clip.Id}.%(ext)s");
+                var args = $"-f bestaudio --no-playlist --no-update {ffmpegLocationArg} {cookiesArg} -o \"{outputPath}\" {clip.Url}";
+
+                await RunProcessAsync(ytDlpPath, args, BasePath);
+
+                var files = Directory.GetFiles(songsDir, $"{clip.Id}.*")
+                    .Where(f => !f.Contains(Path.DirectorySeparatorChar + "trimmed"))
+                    .ToArray();
+                clip.DownloadedFilePath = files.FirstOrDefault();
+
+                if (clip.DownloadedFilePath != null)
                 {
-
-                    await _trimSemaphore.WaitAsync();
-                    var file = songFiles[i];
-                    var index = int.Parse(Path.GetFileNameWithoutExtension(file.Name));
-                    trimTasks.Add(Task.Run(async () =>
-                    {
-                        try
-                        {
-                            if (index < 0 || index >= timeStamps.Count)
-                            {
-                                Log?.Invoke($"[WARN] No timestamp for file {file.Name} (index {index}). Skipping.");
-                                return;
-                            }
-                            var trimmedPath = Path.Combine(trimmedDir, $"{index}-cut.mp3");
-
-
-                            // Validate input file exists
-                            if (!File.Exists(file.FullName))
-                            {
-                                Log?.Invoke($"[ERROR] Input file does not exist: {file.FullName}");
-                                return;
-                            }
-
-                            // Only check for non-empty timestamp (let ffmpeg handle format)
-                            var start = timeStamps[index];
-                            if (string.IsNullOrWhiteSpace(start))
-                            {
-                                Log?.Invoke($"[ERROR] Empty timestamp for file: {file.Name}");
-                                return;
-                            }
-
-                            // Convert timestamp to total seconds for ffmpeg -ss
-                            int TimestampToSeconds(string ts)
-                            {
-                                var parts = ts.Split(':').Select(int.Parse).ToArray();
-                                if (parts.Length == 1) return parts[0];
-                                if (parts.Length == 2) return parts[0] * 60 + parts[1];
-                                if (parts.Length == 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-                                return 0;
-                            }
-                            var totalSeconds = TimestampToSeconds(start);
-
-
-                            // Use ffmpeg process directly for robust trimming and mp3 encoding
-                            var ffmpegPath = GetFfmpegPath();
-                            var args = $"-ss {totalSeconds} -t 60 -i \"{file.FullName}\" -vn -acodec libmp3lame -ar 44100 -ab 192k -y \"{trimmedPath}\"";
-                            await RunProcessAsync(ffmpegPath, args, Path.GetDirectoryName(ffmpegPath) ?? BasePath);
-                            Log?.Invoke($"[INFO] Finished trimming {file.Name}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Log?.Invoke($"[EXCEPTION] CutAudioAsync (file {file.Name}): {ex.Message}\n{ex.StackTrace}");
-                        }
-                        finally
-                        {
-                            _trimSemaphore.Release();
-                        }
-                    }));
+                    clip.Status = ClipStatus.Downloaded;
+                    Log?.Invoke($"[INFO] Downloaded clip {clip.Id}");
                 }
-                await Task.WhenAll(trimTasks);
-                Log?.Invoke("[INFO] Trim finished. [FINISHED]");
+                else
+                {
+                    clip.Status = ClipStatus.Failed;
+                    clip.ErrorMessage = "Downloaded file not found";
+                    Log?.Invoke($"[ERROR] Could not find downloaded file for clip {clip.Id}");
+                }
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"[EXCEPTION] CutAudioAsync: {ex.Message}\n{ex.StackTrace}");
+                clip.Status = ClipStatus.Failed;
+                clip.ErrorMessage = ex.Message;
+                Log?.Invoke($"[ERROR] Failed to download clip {clip.Id}: {ex.Message}");
             }
-        }
+            finally
+            {
+                _downloadSemaphore.Release();
+                Interlocked.Increment(ref completed);
+                ReportProgress(completed, clips.Count);
+            }
+        }).ToList();
 
-    public async Task MergeAsync(string outputFilePath)
+        await Task.WhenAll(tasks);
+
+        var successCount = clips.Count(c => c.Status == ClipStatus.Downloaded);
+        Log?.Invoke($"[INFO] Download complete. {successCount}/{clips.Count} clips downloaded.");
+    }
+
+    #endregion
+
+    #region Trim
+
+    public async Task TrimAsync(List<ClipInfo> clips, int clipLengthSeconds)
+    {
+        Log?.Invoke($"[INFO] Starting trim of {clips.Count} clips (length: {clipLengthSeconds}s)...");
+        var ffmpegPath = GetFfmpegPath();
+        var songsDir = Path.Combine(BasePath, "songs");
+        var trimmedDir = Path.Combine(songsDir, "trimmed");
+        Directory.CreateDirectory(trimmedDir);
+
+        var clipsToTrim = clips.Where(c => c.Status is ClipStatus.Downloaded or ClipStatus.Trimmed).ToList();
+        int completed = 0;
+        ReportProgress(0, clipsToTrim.Count);
+
+        var tasks = clipsToTrim.Select(async clip =>
         {
+            await _trimSemaphore.WaitAsync();
             try
             {
-                Log?.Invoke("[INFO] Starting merge process...");
-                var trimmedDir = Path.Combine(BasePath, "songs", "trimmed");
-                // Merge all mp3 files in the trimmed folder
-                var songFiles = Directory.GetFiles(trimmedDir, "*.mp3")
-                    .Select(f => new FileInfo(f))
-                    .OrderBy(f => f.Name)
-                    .ToList();
+                clip.Status = ClipStatus.Trimming;
 
-                // Validate and re-encode all files to a consistent format
-                var validFiles = new List<FileInfo>();
-                var reencodedDir = Path.Combine(trimmedDir, "reencoded");
-                Directory.CreateDirectory(reencodedDir);
-                var ffmpegPath = GetFfmpegPath();
-                foreach (var file in songFiles)
+                var inputFile = clip.DownloadedFilePath;
+                if (string.IsNullOrEmpty(inputFile) || !File.Exists(inputFile))
                 {
-                    if (!file.Exists)
-                    {
-                        Log?.Invoke($"[ERROR] Merge validation: File does not exist: {file.FullName}");
-                        continue;
-                    }
-                    if (file.Length == 0)
-                    {
-                        Log?.Invoke($"[ERROR] Merge validation: File is zero bytes: {file.FullName}");
-                        continue;
-                    }
-                    // Probe file with ffmpeg to check if it can be read
-                    var ffmpegProbePath = ffmpegPath;
-                    var probeArgs = $"-v error -i \"{file.FullName}\" -f null -";
-                    var psiProbe = new ProcessStartInfo
-                    {
-                        FileName = ffmpegProbePath,
-                        Arguments = probeArgs,
-                        WorkingDirectory = Path.GetDirectoryName(ffmpegProbePath) ?? BasePath,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-                    try
-                    {
-                        using (var probeProc = new Process { StartInfo = psiProbe })
-                        {
-                            probeProc.Start();
-                            probeProc.WaitForExit(10000); // 10s timeout for probe
-                            if (probeProc.ExitCode == 0)
-                            {
-                                // Re-encode to a new file in reencodedDir
-                                var reencodedPath = Path.Combine(reencodedDir, file.Name);
-                                var reencodeArgs = $"-i \"{file.FullName}\" -vn -acodec libmp3lame -ar 44100 -ac 2 -ab 192k -y \"{reencodedPath}\"";
-                                var psiReencode = new ProcessStartInfo
-                                {
-                                    FileName = ffmpegPath,
-                                    Arguments = reencodeArgs,
-                                    WorkingDirectory = Path.GetDirectoryName(ffmpegPath) ?? BasePath,
-                                    UseShellExecute = false,
-                                    CreateNoWindow = true,
-                                    RedirectStandardOutput = true,
-                                    RedirectStandardError = true
-                                };
-                                using (var reencodeProc = new Process { StartInfo = psiReencode })
-                                {
-                                    reencodeProc.Start();
-                                    reencodeProc.WaitForExit();
-                                    if (reencodeProc.ExitCode == 0 && File.Exists(reencodedPath))
-                                    {
-                                        validFiles.Add(new FileInfo(reencodedPath));
-                                    }
-                                    else
-                                    {
-                                        Log?.Invoke($"[ERROR] Re-encoding failed for file: {file.FullName}");
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                Log?.Invoke($"[ERROR] Merge validation: ffmpeg cannot read file: {file.FullName}");
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log?.Invoke($"[ERROR] Merge validation: Exception probing file {file.FullName}: {ex.Message}");
-                    }
+                    var files = Directory.GetFiles(songsDir, $"{clip.Id}.*")
+                        .Where(f => !f.Contains(Path.DirectorySeparatorChar + "trimmed"));
+                    inputFile = files.FirstOrDefault();
                 }
 
-                if (validFiles.Count == 0)
+                if (string.IsNullOrEmpty(inputFile) || !File.Exists(inputFile))
                 {
-                    Log?.Invoke("[ERROR] Merge validation: No valid cut files found to merge. Aborting merge.");
+                    clip.Status = ClipStatus.Failed;
+                    clip.ErrorMessage = "Source audio file not found";
+                    Log?.Invoke($"[ERROR] Source file not found for clip {clip.Id}");
                     return;
                 }
 
-                // Create a concat list file for the re-encoded files
-                var concatListPath = Path.Combine(reencodedDir, "concat_list.txt");
-                using (var writer = new StreamWriter(concatListPath, false))
-                {
-                    foreach (var file in validFiles)
-                    {
-                        writer.WriteLine($"file '{file.FullName.Replace("'", "'\\''")}'");
-                    }
-                }
+                var totalSeconds = TimestampToSeconds(clip.Timestamp);
+                var trimmedPath = Path.Combine(trimmedDir, $"{clip.Id}-cut.mp3");
+                var args = $"-ss {totalSeconds} -i \"{inputFile}\" -t {clipLengthSeconds} -vn -acodec libmp3lame -ar 44100 -ac 2 -ab 192k -y \"{trimmedPath}\"";
 
-                // Run ffmpeg to merge
-                var args = $"-f concat -safe 0 -i \"{concatListPath}\" -c copy \"{outputFilePath}\"";
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = args,
-                    WorkingDirectory = Path.GetDirectoryName(ffmpegPath) ?? BasePath,
-                    UseShellExecute = false,
-                    CreateNoWindow = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-                Log?.Invoke("[INFO] Running ffmpeg merge process...");
-                using (var proc = new Process { StartInfo = psi })
-                {
-                    proc.Start();
-                    var mergeTask = Task.Run(async () => {
-                        await proc.StandardOutput.ReadToEndAsync();
-                        await proc.StandardError.ReadToEndAsync();
-                        proc.WaitForExit();
-                    });
-                    var timeout = TimeSpan.FromMinutes(5);
-                    if (await Task.WhenAny(mergeTask, Task.Delay(timeout)) == mergeTask)
-                    {
-                        // Completed within timeout
-                        if (proc.ExitCode != 0)
-                        {
-                            Log?.Invoke($"[ERROR] ffmpeg exited with code {proc.ExitCode}");
-                        }
-                        else
-                        {
-                            Log?.Invoke("[INFO] ffmpeg merge process completed successfully.");
-                        }
-                    }
-                    else
-                    {
-                        try
-                        {
-                            proc.Kill();
-                        }
-                        catch { }
-                        Log?.Invoke("[ERROR] ffmpeg merge process timed out and was killed.");
-                    }
-                }
+                await RunProcessAsync(ffmpegPath, args, BasePath);
 
-                // Optionally delete the concat list file after merging
-                try { File.Delete(concatListPath); } catch { }
-                Log?.Invoke("[INFO] Merge finished. [FINISHED]");
+                clip.TrimmedFilePath = trimmedPath;
+                clip.Status = ClipStatus.Trimmed;
+                Log?.Invoke($"[INFO] Trimmed clip {clip.Id}");
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"[EXCEPTION] MergeAsync: {ex.Message}\n{ex.StackTrace}");
+                clip.Status = ClipStatus.Failed;
+                clip.ErrorMessage = ex.Message;
+                Log?.Invoke($"[ERROR] Failed to trim clip {clip.Id}: {ex.Message}");
+            }
+            finally
+            {
+                _trimSemaphore.Release();
+                Interlocked.Increment(ref completed);
+                ReportProgress(completed, clipsToTrim.Count);
+            }
+        }).ToList();
+
+        await Task.WhenAll(tasks);
+
+        var successCount = clips.Count(c => c.Status == ClipStatus.Trimmed);
+        Log?.Invoke($"[INFO] Trim complete. {successCount}/{clips.Count} clips trimmed.");
+    }
+
+    #endregion
+
+    #region Merge
+
+    public async Task MergeAsync(List<ClipInfo> orderedClips, TransitionSettings transitions, string outputFilePath)
+    {
+        Log?.Invoke("[INFO] Starting merge...");
+        var ffmpegPath = GetFfmpegPath();
+        var trimmedDir = Path.Combine(BasePath, "songs", "trimmed");
+
+        var validClips = orderedClips
+            .Where(c => c.Status == ClipStatus.Trimmed &&
+                        !string.IsNullOrEmpty(c.TrimmedFilePath) &&
+                        File.Exists(c.TrimmedFilePath))
+            .ToList();
+
+        if (validClips.Count == 0)
+        {
+            Log?.Invoke("[ERROR] No valid trimmed clips found to merge.");
+            return;
+        }
+
+        Log?.Invoke($"[INFO] Merging {validClips.Count} clips...");
+
+        List<string> transitionFiles = new();
+        if (transitions.Mode != TransitionMode.None)
+        {
+            transitionFiles = await PrepareTransitionsAsync(transitions, ffmpegPath);
+            if (transitionFiles.Count == 0)
+            {
+                Log?.Invoke("[WARN] No transition files available. Merging without transitions.");
             }
         }
+
+        bool useTransitions = transitions.Mode != TransitionMode.None && transitionFiles.Count > 0;
+        var random = new Random();
+
+        var concatListPath = Path.Combine(trimmedDir, "concat_list.txt");
+        var lines = new List<string>();
+
+        if (useTransitions && transitions.AddAtStart)
+        {
+            var t = GetTransitionFile(transitions, transitionFiles, random);
+            lines.Add(FormatConcatLine(t));
+        }
+
+        for (int i = 0; i < validClips.Count; i++)
+        {
+            var clip = validClips[i];
+            lines.Add(FormatConcatLine(clip.TrimmedFilePath!));
+
+            bool isLast = i == validClips.Count - 1;
+            if (useTransitions && !isLast)
+            {
+                var t = GetTransitionFile(transitions, transitionFiles, random);
+                lines.Add(FormatConcatLine(t));
+            }
+        }
+
+        if (useTransitions && transitions.AddAtEnd)
+        {
+            var t = GetTransitionFile(transitions, transitionFiles, random);
+            lines.Add(FormatConcatLine(t));
+        }
+
+        File.WriteAllLines(concatListPath, lines);
+        Log?.Invoke($"[INFO] Concat list written with {lines.Count} entries.");
+
+        ReportProgress(0, 2);
+
+        Log?.Invoke("[INFO] Validating audio parameters...");
+        var allFiles = validClips.Select(c => c.TrimmedFilePath!).ToList();
+        allFiles.AddRange(transitionFiles);
+        foreach (var f in allFiles)
+        {
+            var probeArgs = $"-v error -show_entries stream=codec_name,sample_rate,channels,bit_rate -of default=noprint_wrappers=1 \"{f}\"";
+            try
+            {
+                var (probeOut, _, probeCode) = await RunProcessCapturedAsync(ffmpegPath, probeArgs, BasePath);
+                if (probeCode == 0 && !string.IsNullOrWhiteSpace(probeOut))
+                    Log?.Invoke($"[INFO] {Path.GetFileName(f)}: {probeOut.Trim().Replace("\n", ", ")}");
+            }
+            catch { }
+        }
+
+        var args = $"-f concat -safe 0 -i \"{concatListPath}\" -c:a libmp3lame -ar 44100 -ac 2 -ab 192k \"{outputFilePath}\"";
+        Log?.Invoke("[INFO] Running ffmpeg merge (re-encoding for consistency)...");
+
+        await RunProcessAsync(ffmpegPath, args, BasePath);
+        ReportProgress(1, 2);
+        Log?.Invoke($"[INFO] Merge complete: {outputFilePath}");
+
+        ReportProgress(2, 2);
+        try { File.Delete(concatListPath); } catch { }
     }
+
+    private async Task<List<string>> PrepareTransitionsAsync(TransitionSettings transitions, string ffmpegPath)
+    {
+        var transitionFiles = new List<string>();
+        var transitionDir = Path.Combine(BasePath, "songs", "transitions");
+        Directory.CreateDirectory(transitionDir);
+
+        List<string> sourceFiles = new();
+
+        if (transitions.Mode == TransitionMode.SingleFile &&
+            !string.IsNullOrEmpty(transitions.SingleFilePath) &&
+            File.Exists(transitions.SingleFilePath))
+        {
+            sourceFiles.Add(transitions.SingleFilePath);
+        }
+        else if (transitions.Mode == TransitionMode.RandomFolder &&
+                 !string.IsNullOrEmpty(transitions.FolderPath) &&
+                 Directory.Exists(transitions.FolderPath))
+        {
+            sourceFiles = Directory.GetFiles(transitions.FolderPath)
+                .Where(f => f.EndsWith(".mp3") || f.EndsWith(".wav") || f.EndsWith(".m4a") ||
+                            f.EndsWith(".webm") || f.EndsWith(".ogg") || f.EndsWith(".aac") ||
+                            f.EndsWith(".flac"))
+                .ToList();
+        }
+
+        foreach (var sourceFile in sourceFiles)
+        {
+            var encodedPath = Path.Combine(transitionDir,
+                Path.GetFileNameWithoutExtension(sourceFile) + ".mp3");
+            var args = $"-i \"{sourceFile}\" -vn -acodec libmp3lame -ar 44100 -ac 2 -ab 192k -y \"{encodedPath}\"";
+            try
+            {
+                await RunProcessAsync(ffmpegPath, args, BasePath);
+                transitionFiles.Add(encodedPath);
+            }
+            catch (Exception ex)
+            {
+                Log?.Invoke($"[WARN] Failed to encode transition '{Path.GetFileName(sourceFile)}': {ex.Message}");
+            }
+        }
+
+        Log?.Invoke($"[INFO] Prepared {transitionFiles.Count} transition file(s).");
+        return transitionFiles;
+    }
+
+    private static string GetTransitionFile(TransitionSettings transitions, List<string> transitionFiles, Random random)
+    {
+        if (transitions.Mode == TransitionMode.SingleFile)
+            return transitionFiles[0];
+        return transitionFiles[random.Next(transitionFiles.Count)];
+    }
+
+    internal static string FormatConcatLine(string filePath)
+        => $"file '{filePath.Replace("'", "'\\''")}'";
+
+    #endregion
+
+    #region Process Execution
+
+    private async Task RunProcessAsync(string fileName, string arguments, string workingDirectory)
+    {
+        var (stdout, stderr, exitCode) = await RunProcessCapturedAsync(fileName, arguments, workingDirectory);
+
+        if (!string.IsNullOrWhiteSpace(stdout))
+            Log?.Invoke($"[PROCESS] {stdout.Trim()}");
+        if (!string.IsNullOrWhiteSpace(stderr))
+            Log?.Invoke($"[PROCESS] {stderr.Trim()}");
+
+        if (exitCode != 0)
+        {
+            Log?.Invoke($"[ERROR] Process exited with code {exitCode}");
+            throw new Exception($"Process exited with code {exitCode}. STDERR: {stderr}");
+        }
+    }
+
+    private async Task<(string stdout, string stderr, int exitCode)> RunProcessCapturedAsync(
+        string fileName, string arguments, string workingDirectory)
+    {
+        var dir = Path.GetDirectoryName(fileName);
+        var psi = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            WorkingDirectory = !string.IsNullOrEmpty(dir) ? dir : workingDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        using var process = new Process { StartInfo = psi };
+        process.Start();
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+
+        return (await stdoutTask, await stderrTask, process.ExitCode);
+    }
+
+    #endregion
+
+    private void ReportProgress(int current, int total)
+        => ProgressChanged?.Invoke(current, total);
 }

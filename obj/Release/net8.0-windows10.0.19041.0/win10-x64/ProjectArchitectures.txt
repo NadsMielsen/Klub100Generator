@@ -1,1 +1,0 @@
-C:\Users\Mads\Documents\Klub100\Klub100Generator\Klub100Generator.csproj;x64

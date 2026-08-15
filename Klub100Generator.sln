@@ -4,6 +4,8 @@ VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Klub100Generator", "Klub100Generator.csproj", "{CEEA1004-2FCD-19A5-78DC-D2D337525FB5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Klub100Generator.Tests", "..\Klub100Generator.Tests\Klub100Generator.Tests.csproj", "{B3EB1005-3AFE-20B6-89ED-E3E448636GC6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -14,6 +16,10 @@ Global
 		{CEEA1004-2FCD-19A5-78DC-D2D337525FB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{CEEA1004-2FCD-19A5-78DC-D2D337525FB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{CEEA1004-2FCD-19A5-78DC-D2D337525FB5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3EB1005-3AFE-20B6-89ED-E3E448636GC6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3EB1005-3AFE-20B6-89ED-E3E448636GC6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3EB1005-3AFE-20B6-89ED-E3E448636GC6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3EB1005-3AFE-20B6-89ED-E3E448636GC6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
