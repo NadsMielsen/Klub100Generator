@@ -8,7 +8,7 @@ namespace Klub100Generator;
 
 public class AudioGeneratorService
 {
-    private readonly SemaphoreSlim _downloadSemaphore = new(2);
+    private readonly SemaphoreSlim _downloadSemaphore = new(5);
     private readonly SemaphoreSlim _trimSemaphore = new(5);
     private readonly SemaphoreSlim _oembedSemaphore = new(5);
     private static readonly HttpClient _httpClient = new();
@@ -363,7 +363,7 @@ public class AudioGeneratorService
                 Log?.Invoke($"[INFO] Downloading clip {clip.Id}: {clip.Url}");
 
                 var outputPath = Path.Combine(songsDir, $"{clip.Id}.%(ext)s");
-                var args = $"-f bestaudio --no-playlist --no-update --no-warnings --retries 5 --fragment-retries 5 --sleep-requests 1 {ffmpegLocationArg} {cookiesArg} -o \"{outputPath}\" {clip.Url}";
+                var args = $"-x --audio-format mp3 --no-playlist --no-update --no-warnings --retries 5 {ffmpegLocationArg} {cookiesArg} -o \"{outputPath}\" {clip.Url}";
 
                 var maxRetries = 5;
                 var delays = new[] { 10, 20, 30, 60 };
