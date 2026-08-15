@@ -8,7 +8,7 @@ namespace Klub100Generator;
 
 public class AudioGeneratorService
 {
-    private readonly SemaphoreSlim _downloadSemaphore = new(5);
+    private readonly SemaphoreSlim _downloadSemaphore = new(3);
     private readonly SemaphoreSlim _trimSemaphore = new(5);
     private readonly SemaphoreSlim _oembedSemaphore = new(5);
     private static readonly HttpClient _httpClient = new();
@@ -363,9 +363,22 @@ public class AudioGeneratorService
                 Log?.Invoke($"[INFO] Downloading clip {clip.Id}: {clip.Url}");
 
                 var outputPath = Path.Combine(songsDir, $"{clip.Id}.%(ext)s");
-                var args = $"-f bestaudio --no-playlist --no-update {ffmpegLocationArg} {cookiesArg} -o \"{outputPath}\" {clip.Url}";
+                var args = $"-f bestaudio --no-playlist --no-update --retries 5 --fragment-retries 5 {ffmpegLocationArg} {cookiesArg} -o \"{outputPath}\" {clip.Url}";
 
-                await RunProcessAsync(ytDlpPath, args, BasePath);
+                var maxRetries = 3;
+                for (int attempt = 1; attempt <= maxRetries; attempt++)
+                {
+                    try
+                    {
+                        await RunProcessAsync(ytDlpPath, args, BasePath);
+                        break;
+                    }
+                    catch (Exception ex) when (attempt < maxRetries && ex.Message.Contains("403"))
+                    {
+                        Log?.Invoke($"[WARN] Clip {clip.Id} got 403 (attempt {attempt}/{maxRetries}). Retrying in 5s...");
+                        await Task.Delay(5000);
+                    }
+                }
 
                 var files = Directory.GetFiles(songsDir, $"{clip.Id}.*")
                     .Where(f => !f.Contains(Path.DirectorySeparatorChar + "trimmed"))

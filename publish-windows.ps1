@@ -1,18 +1,14 @@
 # Publish Klub100Generator as a self-contained folder for Windows.
 # Creates a versioned zip ready for distribution.
 #
-# Output: bin\Release\net9.0-windows10.0.19041.0\win-x64\publish\
-#         bin\Release\Klub100Generator-vX.Y.Z-win-x64.zip
-#
 # The zip contains:
-#   Klub100Generator.exe    (self-contained, launches the app)
-#   *.dll                   (.NET runtime + WinUI 3 + MAUI)
-#   tools\ffmpeg.exe        (~185MB)
-#   tools\yt-dlp.exe        (~18MB)
-#   tools\deno.exe          (~93MB)
+#   Start Klub100Generator.bat   (double-click this to launch)
+#   Klub100Generator\            (subfolder with all app files)
+#     Klub100Generator.exe
+#     *.dll
+#     tools\ffmpeg.exe, ffprobe.exe, yt-dlp.exe, deno.exe
 #
-# Recipients just unzip and double-click the exe - no .NET install needed.
-# Note: WinUI 3 does not support single-file publish, so a folder is required.
+# Recipients just unzip and double-click the bat file - no .NET install needed.
 
 param(
     [string]$Runtime = "win-x64",
@@ -57,16 +53,43 @@ if (Test-Path $toolsSource) {
     Copy-Item -Path $toolsSource -Destination $toolsDest -Recurse
     Write-Host "Copied tools\ to publish directory." -ForegroundColor Cyan
 } else {
-    Write-Host "WARNING: tools\ folder not found. yt-dlp and ffmpeg must be on the recipient's PATH." -ForegroundColor Yellow
+    Write-Host "WARNING: tools\ folder not found." -ForegroundColor Yellow
 }
 
-$exeSize = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
+# Restructure: move everything into a Klub100Generator\ subfolder
+# and create a launcher bat file at the top level
+$appSubfolder = Join-Path $publishDir "Klub100Generator"
+$tempDir = Join-Path $publishDir "_temp_move"
+
+# Move all files into the subfolder
+New-Item -ItemType Directory -Path $appSubfolder -Force | Out-Null
+New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+
+# Move everything except the subfolder itself and temp dir
+Get-ChildItem $publishDir -File | Where-Object { $_.Directory.Name -eq $publishDir.Split('\')[-1] } | ForEach-Object {
+    Move-Item $_.FullName -Destination $appSubfolder -Force
+}
+Get-ChildItem $publishDir -Directory | Where-Object { $_.Name -notin @("Klub100Generator", "_temp_move") } | ForEach-Object {
+    Move-Item $_.FullName -Destination $appSubfolder -Force
+}
+
+Remove-Item $tempDir -Force -ErrorAction SilentlyContinue
+
+# Create launcher bat file
+$batPath = Join-Path $publishDir "Start Klub100Generator.bat"
+$batContent = @"
+@echo off
+cd /d "%~dp0Klub100Generator"
+start Klub100Generator.exe
+"@
+Set-Content -Path $batPath -Value $batContent -Encoding ASCII
+Write-Host "Created launcher: Start Klub100Generator.bat" -ForegroundColor Cyan
+
 $totalSize = [math]::Round((Get-ChildItem $publishDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
 
 Write-Host ""
 Write-Host "Publish succeeded!" -ForegroundColor Green
 Write-Host "  Version:   v$version" -ForegroundColor Yellow
-Write-Host "  Exe size:  $exeSize MB" -ForegroundColor Yellow
 Write-Host "  Total:     $totalSize MB (including tools)" -ForegroundColor Yellow
 Write-Host "  Output:    $publishDir" -ForegroundColor Yellow
 Write-Host ""
@@ -85,4 +108,4 @@ Write-Host "Done!" -ForegroundColor Green
 Write-Host "  Zip:  $zipPath" -ForegroundColor Yellow
 Write-Host "  Size: $zipSize MB" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "Recipients just unzip and run Klub100Generator.exe - no .NET install needed." -ForegroundColor Cyan
+Write-Host "Recipients unzip and double-click 'Start Klub100Generator.bat' - no .NET install needed." -ForegroundColor Cyan
